@@ -1,0 +1,1071 @@
+rm(list=ls())
+require(pracma)
+require(parallel)
+require(extraDistr)
+
+commSetup <- function(S=64, L=512, W=8,
+                      zo=NULL, gam=NULL, sig=NULL, A=NULL, m=1,
+                      gamMean=2.5, gamSD=2.5,
+                      sigMean=5, sigSD=5,
+                      lam=-2.7, B=10, ro=NULL,
+                      jatmn=T,
+                      compType="lottery",
+                      XW=seq(129,384),
+                      temp2d=NULL,
+                      tempLow=9.78, tempHigh=30.22,
+                      tempRev=F,
+                      tempGH=1, tempGSD=0, tempLSD=0.5,
+                      tempGLH=0.81,tempGLSD=2,
+                      tempLSDRed=0,
+                      years=1000,
+                      tempY=NULL,
+                      tau=0.04,
+                      tempYAC=0.767, tempYSD=0.1639,
+                      Tau=NULL,
+                      tempYXGH=1, tempYXGSD=0, tempYXLSD=0,
+                      tempYXGLH=1, tempYXGLSD=0,
+                      Q=NULL,
+                      QMean=8,
+                      QGH=1, QGSD=0, QLSD=0){
+  
+  # This sets up the basic structure of the model.
+  # It creates a list of biological parameters in P (S randomized species and their parameters)
+  # and it creates a list of environmental parameters in X
+  
+  # S:         Total number of species created with hetSetup.
+  # L:         Total number of patches in the metacommunity.
+  # W:         Number of microhabitats in each patch.
+  
+  # zo:        A vector of pre-defined optimal temperature values. Only works if length(zo) is S.
+  # gam:       A vector of pre-defined mean dispersal distances. Only works if length(gam) is S. If no vector is specified, gamMean and gamSD are used to randomly generate the vector gam.
+  # sig:       A vector of pre-defined thermal tolerance breadths. Only works if length(sig) is S. If no vector is specified, sigMean and sigSD are used to randomly generate the vector sig.
+  # A:         Matrix of the relative competition coefficients between species. 
+  # m:         A vector of pre-defined mortality probabilities (or a single value that will be shared for all species). These are probabilies, so the value must be between 0 and 1 (inclusive). Only works if length(m) is 1 or S.
+  # gamMean:   Mean dispersal distance for randomized species. Default is based on Urban et al. 2012.
+  # gamSD:     Standard deviation of dispersal distance for randomized species. Default is based on Urban et al. 2012.
+  # sigMean:   Mean thermal tolerance breadth for randomized species. Default is based on Urban et al. 2012.
+  # sigSD:     Standard deviation of thermal tolerance breadth for randomized species. Default is based on Urban et al. 2012.
+  # lam:       Skewness in thermal tolerance. Default is based on Urban et al. 2012. (to have a mild decrease moving toward colder temperatures and a sharp decrease moving toward warmer temperatures).
+  # B:         Area of integrated birth rate over all T for each species.
+  # compType:  The type of competition in a string. Must be either "lottery" or "temp".
+  
+  # XW:        Window of analysis (to remove edge effects)
+  
+  # temp2d:    A matrix of pre-defined temperatures over x. Only works if nrow(temp2d) is L and ncol(temp2d) is W.
+  # tempLow:   Lowest mean temperature on linear temperature gradient. temp1d(L)=tempLow
+  # tempHigh:  Highest mean temperature on linear temperature gradient. temp1d(1)=tempHigh
+  # tempRev:   If tempRev=T, then temp1d(1)=tempLow and temp1d(L)=tempHigh.
+  # tempGH:    Hurst exponent for global temperature heterogeneity. H=0.5 is Brownian motion; 0.5<H<=1 is long-term positive autocorrelation and 0<=H<0.5 is long-term negative autocorrelation.
+  # tempGSD:   Controls the magnitude of the global temperature heterogeneity.
+  # tempLSD:   Standard deviation in temperature between microhabitats in each patch.
+  # years:     Maximum number of years for initialization + climate change.
+  # tempY:     A vector of pre-defined temperatures over time. Only works if length(tempY) is years.
+  # tau:       Average temperature change per year.
+  # tempYAC:   Temperature autocorrelation over time. Default is global temperature AC from 1880-1979.
+  # tempYSD:   Temperature standard deviation over time. Default is global temperature SD from 1880-1979.
+  # tempYXGH:  Hurst exponent for global heterogeneity in temperature change over time
+  # tempYXGSD: Magnitude of global heterogeneity in temperature change over time
+  # tempYXLSD: Standard deviation in temperature change between microhabitats in each patch
+  
+  # Q:         A matrix of pre-defined habitat quality over x. Only works if nrow(Q) is L and ncol(Q) is W.
+  # QMean:     Average habitat quality for any microhabitat
+  # QGH:       Hurst exponent for global habitat quality heterogeneity. H=0.5 is Brownian motion; 0.5<H<=1 is long-term positive autocorrelation and 0<=H<0.5 is long-term negative autocorrelation.
+  # QGSD:      Controls the magnitude of the global habitat quality heterogeneity.
+  # QLSD:      Standard deviation in habitat quality between microhabitats in each patch.
+  
+  
+  
+  
+  ##########################################################
+  # First, specify biological parameter values for all of the S species.
+  
+  # Optimal temperature for each species. These can be randomly picked from a uniform distribution or pre-defined.
+  if(is.null(zo)){
+    zo <- runif(S,9.9,30.1)
+  } else {
+    if(length(zo)!=S){
+      stop("zo does not match the number of species!")
+    }
+  }
+  
+  # Dispersal distance for each species. These can be randomly picked from a lognormal distribution or pre-defined.
+  if(is.null(gam)){
+    # To use the lognormal distribution, we need to convert mean and SD values
+    gamMu <- log(gamMean/sqrt(1+gamSD^2/gamMean^2))
+    gamSig <- sqrt(log(1+gamSD^2/gamMean^2))
+    gam <- rlnorm(S,gamMu,gamSig)
+  } else {
+    if(length(gam)!=S){
+      stop("gam does not match the number of species!")
+    }
+  }
+  
+  # Thermal tolerance breadth for each species. These can be randomly picked from a lognormal distribution or pre-defined.
+  if(is.null(sig)){
+    # To use the lognormal distribution, we need to convert mean and SD values
+    sigMu <- log(sigMean/sqrt(1+sigSD^2/sigMean^2))
+    sigSig <- sqrt(log(1+sigSD^2/sigMean^2))
+    sig <- rlnorm(S,sigMu,sigSig)
+  } else {
+    if(length(sig)!=S){
+      stop("sig does not match the number of species!")
+    }
+  }
+  
+  # Competition coefficients between each pair of species species. By default, all coefficients are 1 (lottery competition), but A can be pre-defined.
+  if(is.null(A)){
+    A <- matrix(1,S,S)
+  }else{
+    if(!(nrow(A)==S & ncol(A)==S)){
+      stop("A does not match the number of species!")
+    }
+  }
+  
+  # Yearly mortality probability for each species.
+  if(any(m<0) | any(m>1)){
+    stop("m should be between 0 and 1 (inclusive)")
+  }
+  if(length(m)==1){
+    # If only one value is provided, all species will have the same mortality
+    m <- rep(m,S)
+  } else if(length(m)!=S){
+    stop("m does not match the number of species!")
+  }
+  # Mortality is more convenient in this form
+  M <- rep(m,W*L)
+  
+  # Make sure that compType is used correctly
+  if(!(compType=="lottery" | compType=="temp")){
+    stop("compType must be either 'lottery' or 'temp'!")
+  }
+  
+  ##########################################################
+  # Using the randomized species parameters, we derive other variables needed for computation.
+  
+  # zo helps define where the species' thermal optimum is, but mathematically this is not completely correct.
+  # If we let zo be the true optimum, z is the value we plug into the reproduction function so that argmax(b)==zo 
+  # We apply the function zAdjust to all values of zo to calculate z
+  z <- mapply(zAdjust, sig, zo, lam, 2^13)
+  
+  # To speed up computation time, we define full dispersal kernels now.
+  # The dispersal kernel uses q, a transformation of gam
+  q <- sapply(1:S, function(i) 1+1/gam[i]-sqrt(1+1/gam[i]^2))
+  l <- (-L):(L)
+  k <- t(sapply(1:S, function(i) doubGeom(l,q[i])))
+  k[k<10^(-15)] <- 0.0
+  # K is a list of separate L by 2L dispersal kernel matrices
+  # K[[s]] is the dispersal kernel matrix of species s
+  # K[[s]][i,] is a vector of probabilities for a propagule in patch i to spread to patch j-L/2 (this is extra long to account for a propagule spreading beyond the limits of the ecosystem)
+  K <- rep(list(matrix(0,L,2*L)),S)
+  for(i in 1:S){
+    Ki<-matrix(0,2*L,4*L)
+    for(j in 1:(2*L)){
+      Ki[j,j:(j+2*L)]<-k[i,]
+      Ki[j,3/2*L]<-sum(Ki[j,1:(3/2*L)])
+      Ki[j,5/2*L+1]<-sum(Ki[j,(5/2*L+1):(4*L)])
+    }
+    K[[i]]<-Ki[(L/2+1):(3*L/2),(3/2*L):(5/2*L)]
+  }
+  # Tolerance and reproductive strength have a tradeoff
+  # Birth rate is adjusted so each species has roughly equal birth rate when integrated over all T
+  # ro is a constant that adjusts to this reproductive output
+  if(jatmn==T){
+    ro <- sapply(sig,function(x) rAdjust(x,B,lam,1e-06,2^13))
+  }
+  
+  
+  ##########################################################
+  # Put the biological parameters together into a single list, P
+  P=list(S=S,
+         z=z,
+         gam=gam,
+         sig=sig,
+         lam=lam,
+         A=A,
+         M=M,
+         ro=ro,
+         zo=zo,
+         K=K,
+         compType=compType)
+  
+  ##########################################################
+  # Next, we define environmental parameters.
+  # Discrete spatial domain: from 1 to L (integers)
+  x <- seq(1,L)
+  # temp2d is the current temperature over all x and microhabitats
+  if(is.null(temp2d)){
+    
+    temp1dr <- seq(tempHigh,tempLow,length=L)
+    if(tempRev){
+      temp1dr<-rev(temp1dr)
+    }
+    tempG <- tempVarH(L,tempGH)
+    temp1d <- temp1dr+tempG*tempGSD/sd(tempG)
+    if(W>1){
+      tempLSDx <- tempVarH(L,tempGLH)
+      tempLSDx2 <- tempLSD*( (1-tempLSDRed) + tempLSDRed/(1+exp(-tempLSDx*tempGLSD/sd(tempLSDx))))
+      #*2/(1+exp(-tempLSDx*tempGLSD/sd(tempLSDx)))
+      temp2dr <- matrix(temp1d,L,W)
+      tempLH <- matrix(rnorm(L*W,0,1),L,W)
+      tempLH2 <- t(sapply(1:L, function(i) mean(tempLH[i,])+(tempLH[i,]-mean(tempLH[i,]))*tempLSDx2[i]/sd(tempLH[i,])))
+      tempLH3 <- t(matrix(sapply(1:L, function(x) sort(tempLH2[x,]-mean(tempLH2[x,]))),W,L))
+      temp2d <- temp2dr+tempLH3
+    } else{
+      temp2d<-temp1d
+    }
+    
+  } else {
+    if(!(nrow(temp2d)==L & ncol(tempsd)==W)){
+      stop("temp2d does not match environment size!")
+    }
+    temp1d<-rowMeans(temp2d)
+  } 
+  # tempY is a vector of the temperature over time
+  if(is.null(tempY)){
+    tempY<-0:years
+    for (i in 1:years){
+      # A new epsi is calculated for each time step
+      tempY[i+1] <- tempYAC*tempY[i]+rnorm(1,0,tempYSD)*sqrt(1-tempYAC^2)
+    }
+  } else{
+    if(length(tempY)!=years+1){
+      stop("tempY does not match years!")
+    }
+  }
+  # Tau is the temperature change over time in each patch and subpatch
+  if(is.null(Tau)){
+    tauLW <- matrix(tau*100,L,W)
+    tauG <- tempVarH(L,tempYXGH)
+    tauLW2 <- tauLW + tauG*tempYXGSD/sd(tauG)
+    if(W>1){
+      tauLH <- matrix(rnorm(L*W,0,tempYXLSD),L,W)
+      tauLH <- t(matrix(sapply(1:L, function(x) tauLH[x,]-mean(tauLH[x,])),W,L))
+    } else{
+      tauLH <- 0
+    }
+    Tau <- tauLW2+tauLH
+    Tau <- Tau/100
+  } else{
+    if(!(nrow(Tau)==L & ncol(Tau)==W)){
+      stop("Tau does not match environment size!")
+    }
+  }
+  
+  # Habitat quality could differ in space or with species, but we will keep it constant for now
+  if(is.null(Q)){
+    Qr1 <- matrix(QMean,L,W)
+    QG <- tempVarH(L,QGH)
+    Qr2 <- Qr1+QG*QGSD/sd(QG)
+    if(W>1){
+      QLH <- matrix(rnorm(L*W,0,QLSD),L,W)
+      QLH <- t(matrix(sapply(1:L, function(x) QLH[x,]-mean(QLH[x,])),W,L))
+    }
+    else{
+      QLH<-0
+    }
+    Q <- Qr2+QLH
+    
+  } else {
+    if(!(nrow(Q)==L & ncol(Q)==W)){
+      stop("Q does not match environment size!")
+    }
+  }
+  
+  ##########################################################
+  # Put the abiotic parameters together into a single list, X
+  
+  X=list(L=L,
+         x=x,
+         XW=XW,
+         temp1d=temp1d,
+         tau=tau,
+         Tau=Tau,
+         Q=Q,
+         tempY=tempY,
+         tempYAC=tempYAC,
+         tempYSD=tempYSD,
+         temp2d=temp2d,
+         tempLSDx=tempLSDx,
+         W=W)
+  
+  ##########################################################
+  # Export it all as a list
+  
+  return(list(P=P,X=X))
+}
+
+tempVarH <-  function(L,H,sd=1,cZero=T){
+  # This function adds some heterogeneity to the temperature gradient with fractional Brownian noise
+  # See Keitt (2000)
+  # Spectral representation of neutral landscapes
+  # Landscape Ecology 15
+  
+  # H:      Hurst exponent (should be between 0 and 1). It relates to the autocorrelation.
+  ###        When H is near 1, this function has positive long-term positive autocorrelation and will look relatively smooth.
+  ###        When H=0.5, this function is Brownian motion.
+  ###        When H is near 0, then autocorrelation is negative and positive values will more often be followed by negative values (and vice versa).
+  # L:     Length of the temperature gradient.
+  # sd:    The standard deviation of the normal random variables used to generate the amplitudes. This adjusts the magnitude of the output so it isn't tiny. If you want to find this, try using the nlsd() function below.
+  # cZero: If T, it will center the whole output so the mean is 0.
+  
+  
+  # random phases uniformly distributed on [0,2pi]
+  phif <- runif(L)*2*pi
+  
+  # adjusted exponent for amplitudes
+  betaH <- 1+2*H
+  
+  # uniformly distributed random numbers
+  xf <- rnorm(L,0, sd)
+  #xf2 <- rnorm(L,0, sd)
+  
+  #xf[abs(xf)<abs(xf2)]<-xf2[abs(xf)<abs(xf2)]
+  # to form the amplitudes
+  af <- 1/seq(1,L)^(betaH/2)*xf
+  
+  
+  # complex coeffcients
+  cf <- af*exp(1i*phif)
+  
+  #  real part of the inverse fourier transform
+  tH <- Re(ifft(cf))
+  
+  # center it around zero?
+  if(cZero){
+    tH <- tH-mean(tH)
+  }
+  
+  # multiply the output to increase the magnitude of the heterogeneity
+  # add that to the the temperature gradient
+  return(tH)
+}
+
+
+
+doubGeom<-function(x,q){
+  # Probability mass function for "double geometric" distribution
+  # x: distance from origin to landing spot
+  # q: probability of remaining in a given patch (and not continuing to move); see supplemental
+  
+  return((q/(2-q)*(1-q)^abs(x)))
+}
+
+rAdjust<-function(sig,B,lam=-2.7,eps=1e-06,len=2^13){
+  # This function creates a constant to adjust the reproduction rate so that the area under the curve is roughly equal for all species
+  # sig: Thermal tolerance width of a species
+  # B:   Desired total integrated area of positive growth
+  # lam: Skewness in thermal tolerance
+  # eps: Precision of estimate
+  # len: Length of temperature vector. Higher values are more precise
+  
+  # Set up an extended version of a linear tempereature gradient
+  temp <- seq(-100,100,length=len)
+  
+  # The actual optimal temperature is not important here, so we use the center of the temperature gradient
+  z <- 20
+  r <- exp(-(temp-z)^2/sig^2)*(1+erf(lam*(temp-z)/sig))-1
+  
+  bL <- -125; bH <- 125
+  
+  # Binary search for a value of ro such that exp(ro*r) integrates to B over all temperature values where exp(ro*r) is positive
+  
+  for(i in 1:500){
+    bM <- (bL+bH)/2
+    R <- exp(bM*r)
+    G <- trapz(temp,(R-1)*(R>1))
+    differ<- G-B
+    if(abs(differ)<eps){
+      break
+    } else{
+      if(differ>0){
+        bH<-bM
+      } else{
+        bL<-bM
+      }
+    }
+  }
+  return(bM)
+}
+
+zAdjust<-function(sig,zo,lam=-2.7,L=2^13){
+  # The reproduction function in Urban et al. 2012 is useful for creating the shape of the reproduction rate over temperature
+  # However, the z_i "optimal temperature" doesn't end up where we might expect it to be
+  # This function adjusts so that argmax_{temp1d}(R_i)=z_i
+  # sig: The thermal tolerance width of a species
+  # z:   Optimal temperature of species
+  # lam: Skewness in thermal tolerance
+  # len: Length of temperature vector. Higher values are more precise
+  
+  # Set up an extended version of a linear tempereature gradient
+  temp <- seq(-100,100,length=L)
+  
+  # We need to calculate the difference between the expected optimal temperature and the actual optimal temperature
+  # To do so, we begin with a baseline at zc=20
+  zc <- 20
+  
+  # Calculate the baseline reproductive rate
+  r<-exp(-(temp-zc)^2/sig^2)*(1+erf(lam*(temp-zc)/sig))-1
+  
+  # index for which temperature has the maximum reproductive output with the baseline
+  iZ<-which.max(r)
+  # index for baseline optimal temperature
+  oZ<-which.min(abs(temp-zc))
+  # index for desired optimal temperature
+  tZ<-which.min(abs(temp-zo))
+  
+  # adjusted z to make optimal temperature in the right place
+  z<-temp[tZ+oZ-iZ]
+  
+  return(z)
+}
+
+commSimulate <- function(n,P,X,y=1,years=100,init=F,extInit=F,extThresh=100,manage=NULL){
+  # This simulates a community, n, over yars
+  # n:         Initial population sizes. SxLxW array of population nonnegative integers.
+  # P:         List of biotic variables
+  # X:         List of abiotic variables
+  # years:     How many time steps to run the model.
+  # extInit:   If T, the simulation stops running after extThresh time steps without any extinctions. When attempting to initialize a stable community, consider setting extInit to T.
+  # extThresh: If extInit==T, then the simulation stops once extInit time steps have passed without any extinctions.
+  # manage:    A list with a bunch of management options. If left blank, the model generates a list where all management options are set to FALSE.
+  
+  # Make an all-FALSE management list if none is provided
+  if(is.null(manage)){
+    manage <- manageSetup(P,X)
+  }
+  if(init==T){
+    Tau <- 0
+  } else{
+    Tau <- X$Tau
+  }
+  
+  # First, we set up a matrix to save the total population size over time
+  N <- matrix(0,P$S,years+1)
+  # Record the total initial population size of each species across the whole ecosystem
+  N[,1] <- apply(n,1,sum)
+  
+  # Temperature changes over time, so we need to adjust this over the course of the model
+  temp2d0 <- X$temp2d
+  
+  # For output, we want to keep track of the average temperature over time, and we do that with temps
+  temps <- seq(0,years)
+  temps[1] <- mean(temp2d0+X$tempY[y])
+  
+  # Keep track of tempY and tau outside of X
+  tempY <- X$tempY
+  
+  # Run the model for a number of time steps equal to 'years'
+  for (i in 1:years){
+    # Temperature changes before each time step
+    X$temp2d=temp2d0+Tau*i+tempY[i+y]
+    # save the mean temperature
+    temps[i+1]=mean(X$temp2d)
+    # Run the time step function for population adjustment after the change in temperature
+    if(sum(N[,i])>0){
+      n <- timeStep(n,P,X,N[,i],i,manage)
+    }
+    # Record the population size
+    N[,i+1]<-apply(n,1,sum)
+  }
+  return(list(n=n,N=N,temps=temps))
+}
+
+timeStep <- function(n,P,X,N,t,manage){
+  # Cycle through each step of the model.
+  # Each time step could be one "year" or one "generation", but ultimately it runs through each part of the life cycle in an order determined by lcOrder.
+  # The various management techniques can optionally be added to the model between any two of the required steps
+  # reproduction -> dispersal -> density dependence
+  # Reproduction
+  n1 <- reproduce(n,X$L,X$W,P$S,P$z,P$sig,P$ro,P$lam,X$temp2d)
+  
+  # If assisted migration is occurring in this simulation
+  if(manage$AM$AM==T){
+    am <- assistMigrate(n1,N,X$L,X$W,X$temp1d,t,manage$AM)
+    # These are the individuals (of all species) that will still be relocating normally
+    n1 <- am$nD
+    # These are the individuals that were relocated
+    nR <- am$nR
+    # Update the time since last relocation vector
+    manage$AM$tLR <- am$tLR
+    # Make note of the times when the species was relocated
+    manage$AM$relTimes[am$SReloc,t] <- 1
+  }
+  
+  # To save computation time, we don't need to use the dispersal function on species without any propagules
+  # dS are the species with extant propagules
+  dS<-which(rowSums(n1)>0)
+  # Thus, as long as there is at least one species dispersing, go through with dispersal on dS species
+  if(!isempty(dS)){
+    # Slice the array so we are only using those that will be dispersing
+    dispn <- n1[dS,,,drop=F]
+    # Now run the disperse function on the slice
+    dispn2 <- disperse(dispn,X$L,X$W,P$S,P$K[dS])
+    # Preallocate the dispersed array
+    n2 <- n1*0
+    # Add the dispersed individuals to that array
+    n2[dS,,] <- dispn2
+  } else {
+    # If there are no propagules at all, n2 is just n1
+    n2<-n1
+  }
+  
+  # The survive function simulates mortality of adults
+  n3 <- n2+survive(n,X$L,X$W,P$S,P$M)
+  
+  # All inidividuals then compete
+  # (At this point, adults and offspring have equal competitive ability. We could change the compete function if this should change.)
+  n4 <- compete(n3,X$L,X$W,P$S,X$Q,P$A,P$compType,P$z,P$sig,P$ro,P$lam,X$temp2d)
+  
+  return(n4)
+}
+
+bi <- function(z,sig,ro,lam,temp){
+  # reproductive rate function
+  op<-ro*(exp(-((temp-z)/sig)^2)*(1+erf(lam*(temp-z)/sig))-1)
+  return(op)
+}
+
+reproduce <- function(n,L,W,S,z,sig,ro,lam,temp2d){
+  # The number of offspring born for each species in each location is a Poisson random variable with mean r*n
+  
+  # The base reproductive rate is a skewed function, adjust such that min(r)=0 and max(r)=2
+  # Each species will have a different reproductive rate depending on the temperature at that space.
+  # r is the "continuous" form of the birth rate
+  r <- sapply(1:S, function(i) bi(z[i],sig[i],ro[i],lam,temp2d))
+  # R turns it into a discrete form
+  R <- exp(r)
+  # This just turns it into the correct array format
+  R <- aperm(array(R,c(L,W,S)),c(3,1,2))
+  
+  # Mean number of offspring
+  rn <-c(R*n)
+  
+  # The number of offspring is a Poisson random variable with mean=R*n
+  nr<-array(sapply(rn, function(x) rpois(1,x)),c(S,L,W))
+  
+  return(nr)
+}
+
+disperse <- function(n,L,W,S,K){
+  # Each individual spreads throughout the spatial landscape with a random double geometric dispersal kernel determined by the species' mean dispersal distance, gam[i].
+  # For each species in each location, disperse!
+  
+  # Si is the total number of species that are dispersing 
+  Si <- nrow(n)
+  
+  if(is.null(Si)){
+    # When there is 1 species, this function gets confused, so we can fix it here
+    n <- array(n,c(S,L,W))
+    Si <- S
+  }
+  
+  # Flatten the metapopulation so that all microhabitats in one patch are summed together
+  # This makes n1 an SxL matrix
+  n1 <- apply(n,c(1,2),sum)
+  # This disperses the propagules with multinomial random vectors across the temperature gradient X
+  n2 <- t(sapply(1:Si, function(j) disperseMulti(n1[j,],L,K[[j]])))
+  # This distributes the propagules randomly into the microhabitats for each patch x
+  n3 <- c(sapply(1:Si, function(i) t(sapply(1:L,function(j) rebin(sample(1:W,n2[i,j],replace=T),W)))))
+  # This just reformats n3 so it is in the previous SxLxW form
+  n4 <- aperm(array(n3,c(L,W,Si)),c(3,1,2))
+  
+  # And now it's ready to go
+  return(n4)
+}
+
+disperseMulti <- function(n,L,K){
+  # Used in in the disperse function
+  # To save computation time, we only use the mulinomial random number generator for patches where local n is positive
+  # y is just there to mark which indices we are going to run the multinomial generator
+  y <- which(n>0)
+  # Run the multinomial random generator
+  n1 <- sapply(y,function(x) rmultinom(1,n[x],K[x,]))
+  
+  # Now we add all of these vectors together
+  if(length(y)>1){
+    # (Assuming that propagules dispersed from more than one patch)
+    n2 <- rowSums(n1)
+  } else{
+    # (Otherwise, no summation is necessary)
+    n2 <- n1
+  }
+  # This just cuts off the edges that are removed from the model (since we have absorbing boundaries)
+  n3 <- n2[2:(L+1)]
+  return(n3)
+}
+
+survive <- function(n,L,W,S,M){
+  # Adults survival is stochastic
+  # First, we flatten n so it is one long vector (SLWx1) (just like M)
+  nv <- c(n)
+  
+  # We can save computation time if we skip over cases where all species have 0 or 1 mortality probabilities.
+  if(all(M==1)){
+    # When all M is 1, all adults die
+    ns <- n*0
+  } else if(all(M==0)){
+    # When all M is 0, all adults live
+    ns <- n
+  } else{
+    # To save computation time, we find out which patches have living adults with some probability of surviving
+    # wMort are all of the patches that fit this
+    wMort <- which(nv>0 & M<1)
+    
+    # nsv is the full vector form of surviving adults. Pre-allocated to 0 for all.
+    nsv <- 0*nv
+    
+    # Assuming that at least one patch with adults that might survive, calculate stochastic survival
+    if(!isempty(wMort)){
+      nsi<-sapply(wMort, function(i) rbinom(1,nv[i],1-M[i]))
+      nsv[wMort]<-nsi
+    }
+    # Convert the output into original SxLxW form
+    ns<-array(nsv,c(S,L,W))
+  }
+  
+  # ns is all of the surviving adults
+  return(ns)
+}
+
+
+compete <- function(n,L,W,S,Q,A,compType='lottery',z=NULL,sig=NULL,ro=NULL,lam=NULL,temp2d=NULL){
+  # The density dependence in this model is roughly a Beverton-Holt model that includes both interspecific and intraspecific competition
+  # Each individual has a random chance of survival based on a variety of conditions
+  
+  # Competition coefficients depend on interactions between each species and the temperature at the location at the time
+  # These can be thought of as temperature-varying Lotka-Volterra competition coefficients
+  # Probability of survival depends on competition coefficients, number of individuals of each different species at that location, and the quality of the habitat at that location
+  
+  # Competition works differently dependenting on whether it is temperature-dependent or pure lottery competition
+  if(compType=="temp"){
+    # Use the same reproduction temperature dependence to determine competitive pressure
+    r <- sapply(1:S, function(i) bi(z[i],sig[i],ro[i],lam,temp2d))
+    R <- aperm(array(exp(r),c(L,W,S)),c(3,1,2))
+  } else if(compType=="lottery"){
+    # All individuals are equal
+    R <- 1
+  }
+  
+  # Convert Q into an SxLxW array
+  Qrep <- array(rep(Q,each=S),c(S,L,W))
+  # QR determines habitat quality the species
+  QR <- 1/(Qrep*R)
+  # nR is used to determine species interactions
+  nR <- R*n
+  # This puts the species interactions together
+  anR <- sapply(1:S, function(s) colSums(A[s,]*nR))
+  anR <- aperm(array(anR,c(L,W,S)),c(3,1,2))
+  
+  # Convert this into survival probability
+  p <- 1/(1+QR*anR)
+  
+  # Binomial random variables to see who survives
+  nc <- (sapply(1:S,function(s) mapply(rbinom,1,c(n[s,,]),p[s,,])))
+  # Converted into proper SxLxW form
+  nc2 <- array(t(nc),c(S,L,W))
+  
+  return(nc2)
+}
+
+assistMigrate<-function(n,N,L,W,temp1d,t,AM){
+  # Attach AM parameters
+  # Not used for heterogeneity model
+  tLR <- AM$tLR; targs <- AM$targs; eta <- AM$eta; tCD <- AM$tCD
+  
+  # Preallocate the output arrays
+  # nR is the array of relocated individuals
+  nR <- n*0
+  # nD is the array of individuals that will disperse naturally instead of assisted migration
+  nD <- n
+  
+  
+  ##########################################################
+  # DO WE DO ANY ASSISTED MIGRATION DURING THIS TIME STEP? #
+  ##########################################################
+  # Which species need to be relocated?
+  # Must be a target species, not during a cooldown period, and population less than the threshold but greater than 0
+  SReloc <- which(targs & t-tLR>tCD & N<eta & N>0)
+  SRL <- length(SReloc)
+  
+  # We only need to go through this bit if there are going to be any relocations during this time step
+  if(!isempty(SReloc)){
+    
+    # Attach AM parameters
+    rho <- AM$rho; mu <- AM$mu; zEst <- AM$zEst; xLoc <- AM$xLoc; recRad <- AM$recRad; donor <- AM$donor; recipient <- AM$recipient; randPick <- AM$randPick
+    # Preallocate the relocation array
+    nXWReloc <- n[SReloc,,,drop=FALSE]*0
+    
+    # Because relocation is occuring, we can update the tLR (time of last relocation) vector
+    tLR[SReloc] <- t
+    
+    # We don't need to worry about microhabitats here, so we can flatten out the population array a bit
+    # This makes n1 an SxL matrix
+    nf <- apply(n,c(1,2),sum)
+    
+    # To help with this, set up the populations for each SReloc species into a vector for all patches with microhabitats summed up (SReloc x L)
+    nv <- sapply(SReloc, function(s) c(nf[s,]))
+    
+    NSProps <- colSums(nv)
+    ##################################################
+    # HOW MANY AND WHICH INDIVIDUALS DO WE RELOCATE? #
+    ##################################################
+    # Do we pick individuals randomly or just a take a particular amount?
+    # NDon is the total number of donated propagules for each species in SReloc
+    if(randPick){
+      NDon <- sapply(1:SRL, function(s) rbinom(1,NSProps[s],rho[s]))
+    } else{
+      NDon <- ceil(NSProps*rho[SReloc])
+    }
+    
+    
+    # Now we pick the actual individuals out of the metapopulations
+    # We can pick them in different ways
+    if(donor==1){
+      # 1 is randomly picked throughout the entire range
+      # We can do this with a multivariate hypergeometric random vector
+      nDon <- t(sapply(1:SRL, function(s) rmvhyper(1,nv[,s],NDon[s])))
+    }else if(donor==2){
+      # 2 is picking individuals from the trailing edge
+      # First, we preallocate the nDon
+      nDon <- nv*0
+      for(s in 1:SRL){
+        # We convert the spatial distribution of local populations into a vector that just shows where each individual is
+        nUnbin <- unbin(nv[,s])
+        # Pick the first NDon[,s] on the trailing edge
+        nUnbinDon <- nUnbin[1:NDon[s]]
+        # and put it back into the regular format
+        nDon[s,] <- rebin(nUnbinDon,length(nv[,s]))
+      }
+    }else if(donor==3){
+      # 3 is picking individuals from the leading edge
+      # First, we preallocate the nDon
+      nDon <- nv*0
+      for(s in 1:SRL){
+        # We convert the spatial distribution of local populations into a vector that just shows where each individual is
+        nUnbin <- unbin(nv[,s])
+        # Pick the first NDon[,s] on the leading edge
+        nUnbinDon <- nUnbin[(length(nUnbin)-NDon[s]+1):length(nUnbin)]
+        # and put it back into the regular format
+        nDon[s,] <- rebin(nUnbinDon,length(nv[,s]))
+      }
+    }
+    
+    # Remove the donated indivudals from the nv array
+    nvDisp <- nv-t(nDon)
+    # Preallocate an array for relocated individuals
+    nvReloc <- nv*0
+    
+    ############################
+    # WHO SURVIVES RELOCATION? #
+    ############################
+    # Total individuals surviving
+    NDonS <- sapply(1:SRL, function(s) rbinom(1,NDon[s],mu[s]))
+    
+    #########################
+    # WHERE DO WE RELOCATE? #
+    #########################
+    # Which patch is closest to the estimated thermal optimum + xLoc patches ahead
+    locS <- sapply(SReloc, function(s) which.min(abs(zEst[s]-temp1d))+xLoc[s])
+    # If locS is too big or too small, we need to fix that
+    for(s in 1:SRL){
+      if(locS[s]<(1+recRad[SReloc[s]])){
+        loc[s] <- 1+recRad[SReloc[s]]
+      }else if(locS[s]>(L-recRad[SReloc[s]]))
+        locS[s] <- L-recRad[SReloc[s]]
+    }
+    
+    # Identify the locations that receive inidividuals
+    locSs <- sapply(1:SRL, function(s) (locS[s]-recRad[SReloc[s]]):(locS[s]+recRad[SReloc[s]]))
+    
+    # Relocate the individuals based on shape
+    if(recipient==1){
+      # 1 is a square shape
+      for(s in 1:SRL){
+        # Length of recipient location
+        recSize<-(2*recRad[s]+1)
+        # Evenly distribute individuals through the recipient location
+        nvReloc[locSs[,s],s] <- nvReloc[locSs[,s],s]+floor(NDonS[s]/recSize)
+        # There will probably be a few extras after all is even. Place these randomly.
+        extras <- sample(locSs[,s],NDonS[s]%%recSize)
+        nvReloc[extras,s] <- nvReloc[extras,s]+1
+        
+        # Now we redistribute these amongst the width of the ecosystem
+        # Similarly to above
+        for(x in locSs[,s]){
+          nXWReloc[s,x,] <- floor(nvReloc[x,s]/W)
+          extras <- sample(1:W,nvReloc[x,s]%%W)
+          nXWReloc[s,x,extras] <- nXWReloc[s,x,extras]+1
+        }
+      }
+    }
+    # Now put the relocated and dispersing individuals into full arrays
+    nR[SReloc,,] <- nXWReloc
+    # The non-relocated individuals will disperse naturally
+    # When running the disperse() function, all microhabitats are combined, so there's no reason to separate these into microhabitats
+    nD[SReloc,,1] <- t(nvDisp)
+  }
+  # Ultimately, we want to output the relocated array, the dispersing array, the species that were relocated, and the updated time since last relocation
+  output <- list(nR=nR,
+                 nD=nD,
+                 SReloc=SReloc,
+                 tLR=tLR)
+  return(output)
+}
+
+
+manageSetup <- function(P,X,years=100,
+                        AM=NULL,corridor=NULL,habQual=NULL,locHet=NULL,velocHet=NULL,
+                        targs=NULL,eta=50,tCD=5,rho=0.8,mu=0.8,zEst=P$zo,xLoc=10,recRad=2,donor=1,recipient=1,tLR=NULL,randPick=F){
+  # This sets up the management options for a simulation
+  # It creates a list of several lists that include paramaters for each management option
+  # Many of these don't bother to check for errors, so make sure you're careful.
+  #
+  # P:         List of biotic parameters
+  # X:         List of abiotic parameters
+  #
+  # years:     The number of years that the model is going to be run.
+  # 
+  # AM:        Assisted migration. TRUE or FALSE determine whether the model runs through AM during each time step. If left NULL, this function will not define any parameters for AM.
+  # corridor:  Corridor establishment. TRUE or FALSE determine whether the model runs through corridor management during each time step. If left NULL, this function will not define any parameters for corridor.
+  # habQual:   Change habitat quality. TRUE or FALSE determine whether the model runs through changing habitat quality during each time step. If left NULL, this function will not define any parameters for habQual.
+  # locHet:    Change local heterogeneity. TRUE or FALSE determine whether the model runs through changing local heterogeneity during each time step. If left NULL, this function will not define any parameters for locHet.
+  # velocHet:  Change heterogeneity climate velocity. TRUE or FALSE determine whether the model runs through changing heterogeneity in climate velocity during each time step. If left NULL, this function will not define any parameters for velocHet.
+  #
+  
+  # AM PARAMETERS
+  # targs:     Which species are specifically targeted for assisted migration?  A list of 0s (for not targeted) and 1s (for targeted). Must be a vector of length S. Could also be a vector of species number (index from P parameters). Lastly, can just be "all" to include all species.
+  # eta:       Relocation threshold. Any population of a target species that falls below this is relocated. Should be a nonnegative single integer or a vector of length S.
+  # tCD:       Cooldown time between relocations. AM is not repeated if tCD has not passed since the last AM event. Should be a single nonnegative integer or a vector of length S.
+  # rho:       Proportion of the total population moved when AM is triggered. Should be a single number from 0 to 1 or a vector of length S.
+  # mu:        Probability of surviving AM. Should be a single number from 0 to 1 or a vector of length S.
+  # zEst:      Estimate of species' thermal optimum. Should be a vector of length S.
+  # xLoc:      How far ahead (in the direction of the leading edge) of the location closest to the thermal optimum estimate are we centering the relocation? Should be a single integer or a vector of length S.
+  # recRad:    How wide is the recipient location? The recipient location consists of the center location (xLoc in front of the thermal optimum) and each patch +/- recRad from this center. Should be a single positive integer or a vector of length S.
+  # donor:     Which individuals do we take from the donor community? 1: randomly (from the "top"), 2: from the trailing edge, 3: from the leading edge. Possible future extensions are 4: from the middle and 5: randomly from the old donor population. Should be a single integer.
+  # recipient: What shape should the recipient population look like? 1: an evenly distributed box. Possible future extensions are 2: rounded, 3: triangular, 4: thermal tolerance shaped. Should be a single integer.
+  # tLR:       When was the last time the species was relocated? Should be an integer vector of length S.
+  # randPick:  Do you want to pick exactly rho of the population (rounded down) or would you rather randomly pick from a binomial distribution with rho as the probability? If you want to do this randomly, set randPick to T. By default, it is set to F.
+  # Now we set all of this up
+  S <- P$S
+  if(is.null(AM)){
+    # If you have no plans for AM at all, there is no need to define anything but AM$AM.
+    AM<-list(AM=F)
+  } else{
+    if(targs=="all"){targs <- 1:S} else{
+      if(is.null(targs)){targs<-rep(0,S)}
+      if(length(targs)>S){stop("targ too long")} else if(length(targs)<1){stop("targ too small")}
+      if(all(targs %in% c(0,1))){if(!(length(targs)==S | length(targs)==1)){stop("If using a 0/1 vector, targs needs to be length S")} else if(length(targs)==1){tInds<-targs; targs<-rep(0,S); targs[tInds]<-1}}else
+        if(all(targs %in% 1:S)){tInds<-targs; targs<-rep(0,S); targs[tInds]<-1} else{stop("If using targs as index vector, at least one of your indices were not valid.")}
+    }
+    if(!(length(eta)==S | length(eta)==1)){stop("Wrong length")} else if(length(eta)==1){eta<-rep(eta,S)}
+    if(!(length(tCD)==S | length(tCD)==1)){stop("Wrong length")} else if(length(tCD)==1){tCD<-rep(tCD,S)}
+    if(!(length(rho)==S | length(rho)==1)){stop("Wrong length")} else if(length(rho)==1){rho<-rep(rho,S)}
+    if(!(length(mu)==S | length(mu)==1)){stop("Wrong length")} else if(length(mu)==1){mu<-rep(mu,S)}
+    if(!(length(xLoc)==S | length(xLoc)==1)){stop("Wrong length")} else if(length(xLoc)==1){xLoc<-rep(xLoc,S)}
+    if(!(length(recRad)==S | length(recRad)==1)){stop("Wrong length")} else if(length(recRad)==1){recRad<-rep(recRad,S)}
+    relTimes<-matrix(0,S,years)
+    
+    if(is.null(tLR)){tLR<-rep(0,S)}
+    AM <- list(AM=AM,targs=targs,eta=eta,tCD=tCD,rho=rho,mu=mu,zEst=zEst,xLoc=xLoc,recRad=recRad,donor=donor,recipient=recipient,tLR=tLR,randPick=randPick,relTimes=relTimes)
+  }
+  
+  # CORRIDOR PARAMETERS
+  if(is.null(corridor)){
+    # If you have no plans for corridor establishment at all, there is no need to define anything but corridor$corridor.
+    corridor<-list(corridor=F)
+  }
+  
+  # HABITAT QUALITY PARAMETERS
+  if(is.null(habQual)){
+    # If you have no plans for increasing habitat quality at all, there is no need to define anything but habQual$habQual.
+    habQual<-list(habQual=F)
+  }
+  
+  # LOCAL HETEROGENEITY PARAMETERS
+  if(is.null(locHet)){
+    # If you have no plans for local heterogeneity change at all, there is no need to define anything but locHet$locHet.
+    locHet<-list(locHet=F)
+  }
+  
+  # CLIMATE VELOCITY HETEROGENEITY PARAMETERS
+  if(is.null(velocHet)){
+    # If you have no plans for changing climate velocity heterogeneity at all, there is no need to define anything but velocHet$velocHet.
+    velocHet<-list(velocHet=F)
+  }
+  
+  manage <- list(AM=AM,
+                 corridor=corridor,
+                 locHet=locHet,
+                 velocHet=velocHet)
+  return(manage)
+}
+
+
+unbin <- function(v){
+  # Convert vector of population sizes over x into a vector of the location for each individual
+  L<-sum(v)
+  ub<-matrix(0,L)
+  j<-0
+  for(i in which(v>0)){
+    ub[(j+1):(j+v[i])]<-i
+    j<-j+v[i]
+  }
+  return(c(ub))
+}
+
+rebin <- function(ub,L){
+  # Converts a vector of individual locations into a vector of population sizes over x
+  v<-1:L
+  for(i in 1:L){
+    v[i]<-length(which(ub==i))
+  }
+  return(v)
+}
+
+flatComm <- function(n){
+  # Take a community with subpopulations and flatten it into a single patch each
+  nf <- apply(n,c(1,2),sum)
+  return(nf)
+}
+
+qRange <- function(nFi,q1=0.025,q2=0.025,type=7){
+  # Find the range of the population within quantiles
+  if(sum(nFi)<=0){
+    r<-0
+  }else{
+    ubn <- unbin(nFi)
+    q <- quantile(ubn,c(1-q1,q2),names=F,type=type)
+    r <- q[1]-q[2]
+  }
+  return(r)
+}
+
+fullSimulation <- function(id){
+  # Full simulation
+  set.seed(id) #random seed
+  tempYSD <- runif(1,0,1) # environmental stochasticity
+  tempLSD <- runif(1,0,2) # local heterogeneity
+  gam <- 10^(runif(1,-4,0)) # mean dispersal distance
+  sig <- runif(1,2,5) # thermal rtolerance
+  r <- runif(1,1.5,6) # fecundity
+  
+  E<-c(0.5,0.25) # environmental stochasticity for management comparison
+  H<-c(1,2) # local heterogeneity for management comparison
+  
+  outV<-matrix(NA,5,15) # preallocate matrix to store results
+  
+  S <- 1 # number of species
+  L <- 512 # number of patches
+  W <- 8 # number of subpatches per patch
+  
+  iYears<-200 # time steps for initialization
+  ccYears<-100 # time steps for climate change simulation
+  
+  tau <- 0.04 # average yearly change in temperature
+  
+  # Set up the model
+  iSetup<-commSetup(S=S,L=L,W=W,compType="temp",years=iYears+ccYears,tempLSD=tempLSD ,tempYSD=tempYSD,zo=20,gam=gam,sig=sig,ro=r,jatmn=F,tau=tau)
+  P<-iSetup$P
+  X<-iSetup$X
+  
+  ### Neutral simulation: no management ##
+  # initialization
+  ni <- array(4,c(P$S,X$L,X$W))
+  iSim <- commSimulate(ni,P,X,y=1,years=iYears,init=T)
+  nif <- iSim$n
+  niFlat<-flatComm(nif)
+  # climate change
+  jSim <- commSimulate(nif,P,X,y=iYears+1,years=ccYears,init=F)
+  njFlat<-flatComm(jSim$n)
+  # save results
+  outV[1,] <- c(id,jSim$N[1],jSim$N[ccYears+1],qRange(niFlat),qRange(njFlat),gam,sig,r,tempYSD,tempLSD,1*(jSim$N[ccYears+1]==0),tempLSD,tempLSD,tempYSD,tempYSD)
+  
+  
+  ## Management to increase heterogeneity ##
+  h1<-1 # set the heterogeneity (H) to 1
+  X1<-X # change X (list where abiotic parameters stored)
+  X1$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h1) # need to recalculate the temperature gradient to account for new heterogeneity
+  # initialization for both simulations
+  ni <- array(4,c(P$S,X$L,X$W))
+  iSim <- commSimulate(ni,P,X1,y=1,years=iYears,init=T)
+  nif <- iSim$n
+  niFlat<-flatComm(nif)
+  
+  # This is somewhat unnecessary, but it "changes" the heterogeneity (H) to 1 (same as initialization) 
+  h2<-H[1]
+  X2<-X
+  X1$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h2)
+  # climate change simulation
+  jSim <- commSimulate(nif,P,X2,y=iYears+1,years=ccYears,init=F)
+  njFlat<-flatComm(jSim$n)
+  # save results
+  outV[2,] <- c(id,jSim$N[1],jSim$N[ccYears+1],qRange(niFlat),qRange(njFlat),gam,sig,r,tempYSD,tempLSD,1*(jSim$N[ccYears+1]==0),h1,h2,tempYSD,tempYSD)
+  
+  # Change the heterogeneity (H) to 2 (restoration)
+  h2<-H[2]
+  X2<-X
+  X1$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h2)
+  # climate change simulation
+  jSim <- commSimulate(nif,P,X2,y=iYears+1,years=ccYears,init=F)
+  njFlat<-flatComm(jSim$n)
+  # save results
+  outV[3,] <- c(id,jSim$N[1],jSim$N[ccYears+1],qRange(niFlat),qRange(njFlat),gam,sig,r,tempYSD,tempLSD,1*(jSim$N[ccYears+1]==0),h1,h2,tempYSD,tempYSD)
+  
+  
+  ## Management to decrease stochasticity ##
+  e1<-0.5 # Set the stochasticity to 0.5
+  X1<-X # change X (list where abiotic parameters stored)
+  X1$tempY<-X$tempY*e1/sd(X$tempY) # need to recalculate the temperature gradient to account for new heterogeneity
+  # initialization for both simulations
+  ni <- array(4,c(P$S,X$L,X$W))
+  iSim <- commSimulate(ni,P,X1,y=1,years=iYears,init=T)
+  nif <- iSim$n
+  niFlat<-flatComm(nif)
+  
+  # This is somewhat unnecessary, but it "changes" the stochasticity (S) to 0.5 (same as initialization) 
+  e2<-E[1]
+  X2<-X
+  X2$tempY<-X$tempY*e2/sd(X$tempY)
+  # climate change simulation
+  jSim <- commSimulate(nif,P,X2,y=iYears+1,years=ccYears,init=F)
+  njFlat<-flatComm(jSim$n)
+  # save results
+  outV[4,] <- c(id,jSim$N[1],jSim$N[ccYears+1],qRange(niFlat),qRange(njFlat),gam,sig,r,tempYSD,tempLSD,1*(jSim$N[ccYears+1]==0),tempLSD,tempLSD,e1,e2)
+
+  # Change the stochasticity (S) to 0.25 (restoration)
+  e2<-E[2]
+  X2<-X
+  X2$tempY<-X$tempY*e2/sd(X$tempY)
+  # climate change simulation
+  jSim <- commSimulate(nif,P,X2,y=iYears+1,years=ccYears,init=F)
+  njFlat<-flatComm(jSim$n)
+  # save results
+  outV[5,] <- c(id,jSim$N[1],jSim$N[ccYears+1],qRange(niFlat),qRange(njFlat),gam,sig,r,tempYSD,tempLSD,1*(jSim$N[ccYears+1]==0),tempLSD,tempLSD,e1,e2)
+
+  # return the results
+  return(outV)
+}
+
+
+#### Run simulation ####
+# Result is a matrix with results from 1 set of simulations (change the number in parentheses for new random seed)
+simulation <- fullSimulation(1)
+# Turn the matrix results into a dataframe
+df <- data.frame(simulation)
+## Column names for dataframe
+# i: simulation number (random seed to generate data)
+# Ni: total population size after initialization
+# Nf: final population size after climate change simulation
+# Ri: 95% quantile of range (in patches) after initialization
+# Rf: 95% quantile of range (in patches) after climate change simulation
+# disp: mean dispersal distance
+# toler: thermal tolerance breadth
+# r: fecundity
+# E: environmental stochasticity
+# H: local heterogeneity
+# ext: does the population go extinct?
+# h1: initial heterogeneity
+# h2: heterogeneity after management
+# e1: initial stochasticity
+# e2: stochasticity after management
+colnames(df1)<-c('i','Ni','Nf','Ri','Rf','disp','toler','r','E','H','ext','h1','h2','e1','e2')
