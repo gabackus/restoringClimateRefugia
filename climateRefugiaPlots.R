@@ -30,6 +30,13 @@ dfN$ldisp <- log10(dfN$disp)
 dfH$ldisp <- log10(dfH$disp)
 dfE$ldisp <- log10(dfE$disp)
 
+# simplify dfH and dfE
+dfH$NfNA<-rep(dfH$Nf[dfH$h1==dfH$h2],each=2) # adds another column that is the final population size for simulation with no action
+dfH <- dfH[dfH$h1!=dfH$h2,] # remove the rows with no management
+dfE$NfNA<-rep(dfE$Nf[dfE$e1==dfE$e2],each=2) # adds another column that is the final population size for simulation with no action
+dfE <- dfE[dfE$e1!=dfE$e2,] # remove the rows with no management
+
+
 #### Figure 2a,b,c,d,e,f ####
 require(randomForest)
 samps<-100000 # sample size in random forest
@@ -111,7 +118,7 @@ s5 <- ggplot(pdH,aes(x=H,y=y))+
   scale_x_continuous(name=(expression(H: " Local temperature heterogeneity")))+
   scale_y_continuous(name='Partial dependence',limits=c(-12,12))+
   theme_classic()
-# environmental stochasiticity
+# environmental stochasticity
 s6 <- ggplot(pdE,aes(x=E,y=y))+
   geom_line(size=1.5)+
   geom_hline(yintercept = 0,linetype=2)+
@@ -124,25 +131,25 @@ plot_grid(s1,s2,s3,s4,s5,s6,nrow=3,labels=c('a','b','c','d','e','f'))
 
 
 #### Figure 2g,h ####
-# discretize the model results into categories for average dispwersal, local temperature heterogeneity, and environmental stochasticity
-dfN$dispCat2<-cut(dfN$ldisp, breaks=seq(-4,0,by=0.25),labels=seq(1,16),include.lowest = T)
-dfN$hetCat2<-cut(dfN$H, breaks=seq(0,2,by=0.125),labels=seq(1,16),include.lowest = T)
-dfN$stoCat2<-cut(dfN$E, breaks=seq(0,1,by=0.0625),labels=seq(1,16),include.lowest = T)
+# discretize the model results into categories for average dispersal, local temperature heterogeneity, and environmental stochasticity
+dfN$dispCat<-cut(dfN$ldisp, breaks=seq(-4,0,by=0.25),labels=seq(1,16),include.lowest = T)
+dfN$hetCat<-cut(dfN$H, breaks=seq(0,2,by=0.125),labels=seq(1,16),include.lowest = T)
+dfN$stoCat<-cut(dfN$E, breaks=seq(0,1,by=0.0625),labels=seq(1,16),include.lowest = T)
 
 # Now summarize the results for each combination of dispersal and heterogeneity category
-sdfH<-ddply(dfN,c("dispCat2","hetCat2"),summarize,N=length(i),
+sdfH<-ddply(dfN,c("dispCat","hetCat"),summarize,N=length(i),
             NiM=mean(Ni,na.rm=T),NfM=mean(Nf,na.rm=T), # mean initial population and mean final population
             RiM=mean(Ri,na.rm=T),RfM=mean(Rf,na.rm=T), # mean initial range and mean final range
             extM=mean(ext,na.rm=T),dispM=mean(disp,na.rm=T)) # proportion extinct and mean dispersal
 
 # Same for environmental stochasticity
-sdfE<-ddply(dfN,c("dispCat2","stoCat2"),summarize,N=length(i),
+sdfE<-ddply(dfN,c("dispCat","stoCat"),summarize,N=length(i),
             NiM=mean(Ni,na.rm=T),NfM=mean(Nf,na.rm=T),
             RiM=mean(Ri,na.rm=T),RfM=mean(Rf,na.rm=T),
             extM=mean(ext,na.rm=T),dispM=mean(disp,na.rm=T))
 
 # Plot the persistence likelihood depending on dispersal and heterogeneity
-hetPers <- ggplot(sdfH,aes(x= as.numeric(dispCat2),y= as.numeric(hetCat2),fill=1-extM))+
+hetPers <- ggplot(sdfH,aes(x= as.numeric(dispCat),y= as.numeric(hetCat),fill=1-extM))+
   geom_tile()+
   scale_fill_viridis_c(name="Persistence\nlikelihood",limits=c(0,1),option="magma")+
   scale_x_continuous(name="Dispersal ability",breaks=c(0.5,8.5,16.5),labels=c(0.0001,0.01,1),expand=c(0,0))+
@@ -154,7 +161,7 @@ legendP<-get_legend(hetPers)
 hetPers <- hetPers+theme(legend.position="none")
 
 # Plot the average proportion of remaining population depending on dispersal and heterogeneity
-hetN <- ggplot(sdfH,aes(x= as.numeric(dispCat2),y= as.numeric(hetCat2),fill=NfM/NiM))+
+hetN <- ggplot(sdfH,aes(x= as.numeric(dispCat),y= as.numeric(hetCat),fill=NfM/NiM))+
   geom_tile()+
   scale_fill_viridis_c(name="Average\npercent\npopulation\nremaining",limits=c(0,1))+
   scale_x_continuous(name="Dispersal ability",breaks=c(0.5,8.5,16.5),labels=c(0.0001,0.01,1),expand=c(0,0))+
@@ -166,15 +173,16 @@ legendN<-get_legend(hetN)
 hetN <- hetN+theme(legend.position="none")
 
 # Plot the persistence likelihood depending on dispersal and stochasticity
-stoPers <- ggplot(sdfE,aes(x= as.numeric(dispCat2),y= as.numeric(stoCat2),fill=1-extM))+
+stoPers <- ggplot(sdfE,aes(x= as.numeric(dispCat),y= as.numeric(stoCat),fill=1-extM))+
   geom_tile()+
   scale_fill_viridis_c(name="Persistence\nlikelihood",limits=c(0,1),option="magma")+
   scale_x_continuous(name="Dispersal ability",breaks=c(0.5,8.5,16.5),labels=c(0.0001,0.01,1),expand=c(0,0))+
+  scale_y_continuous(name="Envrionmental stochasticity",breaks=c(0.5,8.5,16.5),labels=c(0,0.5,1),expand=c(0,0))+
   coord_fixed()+
   theme(legend.position="none")
 
 # Plot the average proportion of remaining population depending on dispersal and stochasticity
-stoN <- ggplot(sdfE,aes(x= as.numeric(dispCat2),y= as.numeric(stoCat2),fill=NfM/NiM))+
+stoN <- ggplot(sdfE,aes(x= as.numeric(dispCat),y= as.numeric(stoCat),fill=NfM/NiM))+
   geom_tile()+
   scale_fill_viridis_c(name="Average\npercent\npopulation\nremaining",limits=c(0,1))+
   scale_x_continuous(name="Dispersal ability",breaks=c(0.5,8.5,16.5),labels=c(0.0001,0.01,1),expand=c(0,0))+
@@ -189,47 +197,40 @@ plot_grid(hetPers,stoPers,legendP, hetN,stoN,legendN,nrow=2,labels=c("a","b","",
 
 #### Figure 4 ####
 # We want to categorize dfH by whether management was positive or negative and how strong that was
-dfH$NfNA<-rep(dfH$Nf[dfH$h1==dfH$h2],each=2) # adds another column that is the final population size for simulation with no action
 dfH$percImp<-dfH$Nf/dfH$NfNA # how much does management improve the final population? final population divided by final population with no action
 # sorry, this is a bit weird, but it works
 # we want to categorize the outcomes by percent changed
 # first for management that modifies heterogeneity
-dpi<-dfH[dfH$h1==1 & dfH$h2==2,] # first, let's take a subset of the dataframe where population management occurs
-impCat <- rep(NaN,nrow(dpi)) # make a vector to store categorizations
-impCat[dpi$percImp==0]<-0 # if exctinct with management but not without, category 0
-impCat[dpi$percImp>0 & dpi$percImp<0.1]<-1 # if managed is <10% of managed, category 1
-impCat[dpi$percImp>=0.1 & dpi$percImp<0.5]<-2 # 10-50%, category 2
-impCat[dpi$percImp>=0.5 & dpi$percImp<0.95]<-3, # 50-95%, category 3
-impCat[dpi$percImp>=0.95 & dpi$percImp<=1.05]<-4 # 95-105% (roughly neutral), category 4
-impCat[dpi$percImp>1.05 & dpi$percImp<=2]<-5 # 105-200%, category 5
-impCat[dpi$percImp>2 & dpi$percImp<=10]<-6 # 200-1000%, category 6
-impCat[dpi$percImp>10 &  dpi$percImp<=10000000000000]<-7 # >1000%, category 7
-impCat[is.infinite(dpi$percImp) & dpi$Ni>0]<-8 # managed persists when unmanaged went extinct, category 8
+dfH$impCat <- NaN # make a vector to store categorizations
+dfH$impCat[dfH$percImp==0]<-0 # if exctinct with management but not without, category 0
+dfH$impCat[dfH$percImp>0 & dfH$percImp<0.1]<-1 # if managed is <10% of managed, category 1
+dfH$impCat[dfH$percImp>=0.1 & dfH$percImp<0.5]<-2 # 10-50%, category 2
+dfH$impCat[dfH$percImp>=0.5 & dfH$percImp<0.95]<-3 # 50-95%, category 3
+dfH$impCat[dfH$percImp>=0.95 & dfH$percImp<=1.05]<-4 # 95-105% (roughly neutral), category 4
+dfH$impCat[dfH$percImp>1.05 & dfH$percImp<=2]<-5 # 105-200%, category 5
+dfH$impCat[dfH$percImp>2 & dfH$percImp<=10]<-6 # 200-1000%, category 6
+dfH$impCat[dfH$percImp>10 &  dfH$percImp<=10000000000000]<-7 # >1000%, category 7
+dfH$impCat[is.infinite(dfH$percImp) & dfH$Ni>0]<-8 # managed persists when unmanaged went extinct, category 8
 # anything left are populations that go extinct with or without management
-dfH$impCat<-rep(impCat,each=2) # add these categories to dfH
 
 # now do the same for management that modifies stochasticity
-dfE$NfNA<-rep(dfE$Nf[dfE$e1==dfE$e2],each=2) # adds another column that is the final population size for simulation with no action
 dfE$percImp<-dfE$Nf/dfE$NfNA # how much does management improve the final population? final population divided by final population with no action
 # we want to categorize the outcomes by percent changed
-dpi<-dfE[dfE$e1==0.5 & dfE$e2==0.25,] # first, let's take a subset of the dataframe where population management occurs
-impCat <- rep(NaN,nrow(dpi)) # make a vector to store categorizations
-impCat[dpi$percImp==0]<-0 # if exctinct with management but not without, category 0
-impCat[dpi$percImp>0 & dpi$percImp<0.1]<-1 # if managed is <10% of managed, category 1
-impCat[dpi$percImp>=0.1 & dpi$percImp<0.5]<-2 # 10-50%, category 2
-impCat[dpi$percImp>=0.5 & dpi$percImp<0.95]<-3, # 50-95%, category 3
-impCat[dpi$percImp>=0.95 & dpi$percImp<=1.05]<-4 # 95-105% (roughly neutral), category 4
-impCat[dpi$percImp>1.05 & dpi$percImp<=2]<-5 # 105-200%, category 5
-impCat[dpi$percImp>2 & dpi$percImp<=10]<-6 # 200-1000%, category 6
-impCat[dpi$percImp>10 &  dpi$percImp<=10000000000000]<-7 # >1000%, category 7
-impCat[is.infinite(dpi$percImp) & dpi$Ni>0]<-8 # managed persists when unmanaged went extinct, category 8
+dfE$impCat <- NaN # make a vector to store categorizations
+dfE$impCat[dfE$percImp==0]<-0 # if exctinct with management but not without, category 0
+dfE$impCat[dfE$percImp>0 & dfE$percImp<0.1]<-1 # if managed is <10% of managed, category 1
+dfE$impCat[dfE$percImp>=0.1 & dfE$percImp<0.5]<-2 # 10-50%, category 2
+dfE$impCat[dfE$percImp>=0.5 & dfE$percImp<0.95]<-3 # 50-95%, category 3
+dfE$impCat[dfE$percImp>=0.95 & dfE$percImp<=1.05]<-4 # 95-105% (roughly neutral), category 4
+dfE$impCat[dfE$percImp>1.05 & dfE$percImp<=2]<-5 # 105-200%, category 5
+dfE$impCat[dfE$percImp>2 & dfE$percImp<=10]<-6 # 200-1000%, category 6
+dfE$impCat[dfE$percImp>10 &  dfE$percImp<=10000000000000]<-7 # >1000%, category 7
+dfE$impCat[is.infinite(dfE$percImp) & dfE$Ni>0]<-8 # managed persists when unmanaged went extinct, category 8
 # anything left are populations that go extinct with or without management
-dfE$cat2<-rep(dfcat2,each=2) # add these categories to dfE
-
 
 # now let's plot them
 # increased heterogeneity over dispersal
-dc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(disp),stat(count),fill=factor(-cat2)))+
+dc1<-ggplot(dfH[dfH$Ni>0,],aes(x=(disp),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in\npopulation size\nbetween management\nand no action",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -240,7 +241,7 @@ dc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(disp),stat(count),fill
   guides(fill = guide_legend(override.aes = list(colour = "black")),fill=guide_legend(ncol=2))+
   ggtitle("Increased heterogeneity")
 # increased heterogeneity over thermal tolerance
-tc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(toler),stat(count),fill=factor(-cat2)))+
+tc1<-ggplot(dfH[dfH$Ni>0,],aes(x=(toler),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Effect of increasing\nlocal heterogeneity",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -249,7 +250,7 @@ tc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(toler),stat(count),fil
   scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
   scale_x_continuous(name="Thermal tolerance",limit=c(2,5),breaks=c(2,3,4,5),label=c(2,3,4,5),expand=c(0,0))
 # increased heterogeneity over fecundity
-rc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(r),stat(count),fill=factor(-cat2)))+
+rc1<-ggplot(dfH[dfH$Ni>0,],aes(x=(r),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in\npopulation size\nbetween management\nand no action",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -258,7 +259,7 @@ rc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(r),stat(count),fill=fa
   scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
   scale_x_continuous(name="Fecundity",limit=c(1.5,6),breaks=c(2,3,4,5,6),label=c(2,"",4,"",6),expand=c(0,0))
 # increased heterogeneity over stochasticity
-sc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(E),stat(count),fill=factor(-cat2)))+
+sc1<-ggplot(dfH[dfH$Ni>0,],aes(x=(E),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in\npopulation size\nbetween management\nand no action",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -267,19 +268,18 @@ sc1<-ggplot(dfH[dfH$h1==1 & dfH$h2==1 & dfH$Ni>0,],aes(x=(E),stat(count),fill=fa
   scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
   scale_x_continuous(name="Environmental stochasticity",limit=c(0,1),breaks=c(0,0.25,0.5,0.75,1),label=c(0,"",0.5,"",1),expand=c(0,0))
 # decreased stochasticity over dispersal
-dc2<-ggplot(dfE[dfE$e1==0.5 & dfE$e2==0.25 & dfE$Ni>0,],aes(x=(disp),stat(count),fill=factor(-cat2)))+
+dc2<-ggplot(dfE[dfE$Ni>0,],aes(x=(disp),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in population size\nfrom reducing environmental stochasticity",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
                     na.value="white",
                     labels=c("Extinction prevented",">10","2-10","1.05-2 (increased)","0.95-1.05 (neutral)","0.5-0.95 (decreased)","0.1-0.5","<0.1","Extinction caused","Always extinct"))+
   scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
-  scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
   scale_x_log10(name="Mean dispersal",limit=c(0.0001,1),breaks=c(0.0001,0.001,0.01,0.1,1),label=c("0.0001","","0.01","","1"),expand=c(0,0))+
   guides(fill = guide_legend(override.aes = list(colour = "black")))+
   ggtitle("Decreased stochasticity")
 # decreased stochasticity over thermal tolerance
-tc2<-ggplot(dfE[dfE$e1==0.5 & dfE$e2==0.25 & dfE$Ni>0,],aes(x=(toler),stat(count),fill=factor(-cat2)))+
+tc2<-ggplot(dfE[dfE$Ni>0,],aes(x=(toler),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in\npopulation size\nbetween management\nand no action",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -288,7 +288,7 @@ tc2<-ggplot(dfE[dfE$e1==0.5 & dfE$e2==0.25 & dfE$Ni>0,],aes(x=(toler),stat(count
   scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
   scale_x_continuous(name="Thermal tolerance",limit=c(2,5),breaks=c(2,3,4,5),label=c(2,3,4,5),expand=c(0,0))
 # decreased stochasticity over fecundity
-rc2<-ggplot(dfE[dfE$e1==0.5 & dfE$e2==0.25 & dfE$Ni>0,],aes(x=(r),stat(count),fill=factor(-cat2)))+
+rc2<-ggplot(dfE[dfE$Ni>0,],aes(x=(r),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in\npopulation size\nbetween management\nand no action",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -297,7 +297,7 @@ rc2<-ggplot(dfE[dfE$e1==0.5 & dfE$e2==0.25 & dfE$Ni>0,],aes(x=(r),stat(count),fi
   scale_y_continuous(expand=c(0,0),name="Proportion\nof simulations",breaks=c(0,0.25,0.5,0.75,1),labels=c(0,"",0.5,"",1))+
   scale_x_continuous(name="Fecundity",limit=c(1.5,6),breaks=c(2,3,4,5,6),label=c(2,"",4,"",6),expand=c(0,0))
 # decreased stochasticity over heterogeneity
-ec2<-ggplot(dfE[dfE$e1==0.5 & dfE$e2==0.25 & dfE$Ni>0,],aes(x=(H),stat(count),fill=factor(-cat2)))+
+ec2<-ggplot(dfE[dfE$Ni>0,],aes(x=(H),stat(count),fill=factor(-impCat)))+
   geom_histogram(bins=100,position="fill")+
   scale_fill_manual(name="Relative change in\npopulation size\nbetween management\nand no action",
                     values = c("#800000","#FF0000","#FF8000","#FFFF00","#808080","#00FFFF","#0080FF","#0000FF","#000080","#000000"),
@@ -319,8 +319,8 @@ plot_grid(noleg,legend1,nrow=1,rel_widths = c(2, 0.6)) # add the legends
 # make sure you run figure 4 first
 # Separate dfN into categories again, but this time depending on whether they are in the lowest or highest 25% quantiles
 # for dispersal
-dfN$dispCat <- 0-(dfN$disp<quantile(dfN$disp,0.25))
-dfN$dispCat <- dfN$dispCat+(dfN$disp>quantile(dfN$disp,0.75))
+dfN$dispCat2 <- 0-(dfN$disp<quantile(dfN$disp,0.25))
+dfN$dispCat2 <- dfN$dispCat2+(dfN$disp>quantile(dfN$disp,0.75))
 # for thermal tolerance
 dfN$tolerCat <- 0-(dfN$toler<quantile(dfN$toler,0.25))
 dfN$tolerCat <- dfN$tolerCat+(dfN$toler>quantile(dfN$toler,0.75))
@@ -328,39 +328,21 @@ dfN$tolerCat <- dfN$tolerCat+(dfN$toler>quantile(dfN$toler,0.75))
 dfN$rCat <- 0-(dfN$r<quantile(dfN$r,0.25))+0
 dfN$rCat <- dfN$rCat+(dfN$r>quantile(dfN$r,0.75))+0
 # categorize by whether the population benefits from each type of management
-dfN$benH <- 0+(dfH$cat2[seq(2,nrow(dfH),by=2)]>4)
-dfN$benE <- 0+(dfE$cat2[seq(2,nrow(dfH),by=2)]>4)
+dfN$benH <- 0+(dfH$impCat>4)
+dfN$benE <- 0+(dfE$impCat>4)
 # categorize by whether the population is hurt by the management
-dfN$badH <- 0+(dfH$cat2[seq(2,nrow(dfH),by=2)]<4)
-dfN$badE <- 0+(dfE$cat2[seq(2,nrow(dfH),by=2)]<4)
+dfN$badH <- 0+(dfH$impCat<4)
+dfN$badE <- 0+(dfE$impCat<4)
 
+
+#### SOMETHING IS VERY WRONG AND NEEDS FXING?!
 # this summarizes the percent benefit and percent harmed by management 
-sdf <- ddply(dfN[dfN$Ni>0 & dfN$dispCat %in% c(-1,1) & dfN$tolerCat %in% c(-1,1) & dfN$rCat %in% c(-1,1),],c("dispCat","tolerCat","rCat"),summarize,N=length(i),
+sdf <- ddply(dfN[dfN$Ni>0 & dfN$dispCat2 %in% c(-1,1) & dfN$tolerCat %in% c(-1,1) & dfN$rCat %in% c(-1,1),],c("dispCat2","tolerCat","rCat"),summarize,N=length(i),
              persP=1-sum(ext)/length(ext),
              benH=sum(benH,na.rm=T)/length(benH),
-             benE=sum(benE,na.rm=T)/length(benE),
              badH=sum(badH,na.rm=T)/length(badH),
+             benE=sum(benE,na.rm=T)/length(benE),
              badE=sum(badE,na.rm=T)/length(badE))
 
 # this summary data was converted into figure 3 in the paper
 
-dfNa <- dfN[1:350000,]
-save(dfNa,file="dfNa.RData")
-dfNb <- dfN[350001:700000,]
-save(dfNb,file="dfNb.RData")
-dfNc <- dfN[700001:1000000,]
-save(dfNc,file="dfNc.RData")
-
-dfHa <- dfH[1:700000,]
-save(dfHa,file="dfHa.RData")
-dfHb <- dfH[700001:1400000,]
-save(dfHb,file="dfHb.RData")
-dfHc <- dfH[1400001:2000000,]
-save(dfHc,file="dfHc.RData")
-
-dfEa <- dfE[1:700000,]
-save(dfEa,file="dfEa.RData")
-dfEb <- dfE[700001:1400000,]
-save(dfEb,file="dfEb.RData")
-dfEc <- dfE[1400001:2000000,]
-save(dfEc,file="dfEc.RData")
