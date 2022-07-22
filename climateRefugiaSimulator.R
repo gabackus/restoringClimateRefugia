@@ -994,7 +994,7 @@ fullSimulation <- function(id){
   # This is somewhat unnecessary, but it "changes" the heterogeneity (H) to 1 (same as initialization) 
   h2<-H[1]
   X2<-X
-  X1$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h2)
+  X2$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h2)
   # climate change simulation
   jSim <- commSimulate(nif,P,X2,y=iYears+1,years=ccYears,init=F)
   njFlat<-flatComm(jSim$n)
@@ -1004,7 +1004,7 @@ fullSimulation <- function(id){
   # Change the heterogeneity (H) to 2 (restoration)
   h2<-H[2]
   X2<-X
-  X1$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h2)
+  X2$temp2d<-(rowMeans(X$temp2d)+(X$temp2d-rowMeans(X$temp2d))/tempLSD*h2)
   # climate change simulation
   jSim <- commSimulate(nif,P,X2,y=iYears+1,years=ccYears,init=F)
   njFlat<-flatComm(jSim$n)
