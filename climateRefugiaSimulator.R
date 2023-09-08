@@ -3,7 +3,7 @@ require(pracma)
 require(parallel)
 require(extraDistr)
 
-commSetup <- function(S=64, L=512, W=8,
+commSetup <- function(S=1, L=512, W=8,
                       zo=NULL, gam=NULL, sig=NULL, A=NULL, m=1,
                       gamMean=2.5, gamSD=2.5,
                       sigMean=5, sigSD=5,
@@ -25,7 +25,7 @@ commSetup <- function(S=64, L=512, W=8,
                       tempYXGH=1, tempYXGSD=0, tempYXLSD=0,
                       tempYXGLH=1, tempYXGLSD=0,
                       Q=NULL,
-                      QMean=8,
+                      QMean=64,
                       QGH=1, QGSD=0, QLSD=0){
   
   # This sets up the basic structure of the model.
